@@ -5,6 +5,7 @@ import scipy
 import tensorflow as tf
 from sklearn import preprocessing as prep
 import pandas as pd
+import scipy.sparse as sp
 
 
 class timer(object):
@@ -170,12 +171,14 @@ for i in range(100):
     idcg_table[i] = np.sum(idcg_array[:(i + 1)])
 
 
-def batch_eval_recall(_sess, tf_eval, eval_feed_dict, recall_k, eval_data):
+import scipy.sparse as sp
+
+def batch_eval_recall(sess, eval_preds_cold, eval_feed_dict, recall_k, eval_data):
     """
     given EvalData and DropoutNet compute graph in TensorFlow, runs batch evaluation
 
-    :param _sess: tf session
-    :param tf_eval: the evaluate output symbol in tf
+    :param sess: tf session
+    :param eval_preds_cold: the evaluate output symbol in tf
     :param eval_feed_dict: method to parse tf, pick from EvalData method
     :param recall_k: list of thresholds to compute recall at (information retrieval recall)
     :param eval_data: EvalData instance
@@ -183,12 +186,10 @@ def batch_eval_recall(_sess, tf_eval, eval_feed_dict, recall_k, eval_data):
     """
     tf_eval_preds_batch = []
     for (batch, (eval_start, eval_stop)) in enumerate(eval_data.eval_batch):
-        tf_eval_preds = _sess.run(tf_eval,
-                                  feed_dict=eval_feed_dict(
-                                      batch, eval_start, eval_stop, eval_data))
+        tf_eval_preds = sess.run(eval_preds_cold,
+                                 feed_dict=eval_feed_dict(batch, eval_start, eval_stop, eval_data))
         tf_eval_preds_batch.append(tf_eval_preds)
     tf_eval_preds = np.concatenate(tf_eval_preds_batch)
-    tf.local_variables_initializer().run()
 
     # filter non-zero targets
     y_nz = [len(x) > 0 for x in eval_data.R_test_inf.rows]
@@ -199,15 +200,19 @@ def batch_eval_recall(_sess, tf_eval, eval_feed_dict, recall_k, eval_data):
     recall = []
     precision = []
     ndcg = []
+
+    # Assuming idcg_array is defined elsewhere
+    idcg_array = np.arange(1, np.max(recall_k) + 1)
+
     for at_k in recall_k:
         preds_k = preds_all[:, :at_k]
         y = eval_data.R_test_inf[y_nz, :]
 
-        x = scipy.sparse.lil_matrix(y.shape)
+        x = sp.lil_matrix(y.shape)
         x.rows = preds_k
         x.data = np.ones_like(preds_k)
 
-        z = y.multiply(x)
+        z = y.multiply(x.tocsr()) 
         recall.append(np.mean(np.divide((np.sum(z, 1)), np.sum(y, 1))))
         precision.append(np.mean(np.sum(z, 1) / at_k))
 
@@ -223,6 +228,7 @@ def batch_eval_recall(_sess, tf_eval, eval_feed_dict, recall_k, eval_data):
         ndcg.append(np.mean(dcg / idcg))
 
     return recall, precision, ndcg
+
 
 
 def batch_eval_store(_sess, tf_eval, eval_feed_dict, eval_data):

@@ -12,6 +12,7 @@ import argparse
 from tqdm import tqdm
 import pickle
 
+
 np.random.seed(0)
 tf.set_random_seed(0)
 
